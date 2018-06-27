@@ -9,7 +9,8 @@ class Neural_Network():
         self.phi = np.vectorize(self.sigmoid)
         self.cost = self.quadratic
         self.output_error = self.output_error_quadratic
-        self.output_error_next = self.output_error_next_quadratic
+        self.previous_error = self.previous_error_quadratic
+
 
     def add_layer(self, size):
         self.network_blueprint.insert(-1, size)
@@ -23,6 +24,9 @@ class Neural_Network():
         self.z_lists = [] # A list of z values from every input
         self.a_lists = [] # Contains the state of the activations from every input
         self.cost_list = [] # Cost of every input
+        self.error_lists = [] # List of errors where error_lists[x] is the error from input_values_lists[x]
+        self.pC_pw_list = [] # List of pC_pW for every input value
+
         for layer_index, j_neurons in enumerate(self.network_blueprint):
             a = np.ones(shape=(j_neurons, 1))
             self.a_list.append(a)
@@ -51,9 +55,9 @@ class Neural_Network():
                 a_next = self.phi(z)
                 self.a_list[layer + 1] = a_next
 
-            self.a_lists.append(self.a_list)
-            self.z_lists.append(z_list)
-            output = a_next
+            self.a_lists.append(self.a_list[:])
+            self.z_lists.append(z_list[:])
+
 
 
 
@@ -63,7 +67,7 @@ class Neural_Network():
             exit(1)
 
         self.calculate(input_values_list)
-
+        #Calculates the error for every input
         for input_index in range(len(input_values_list)):
             a = self.a_lists[input_index][-1]
             z = self.z_lists[input_index][-1]
@@ -72,21 +76,42 @@ class Neural_Network():
             cost = self.cost(a,y)
             self.cost_list.append(cost)
 
-            output_error = self.output_error(a,z,y)
-            print(output_error)
+            self.output_error(a,z,y)
+            self.previous_error(input_index)
+            self.pC_pw(input_index)
+
 
         total_cost = self.total_cost(self.cost_list)
         print('cost: %s' % total_cost)
         return
 
-    def output_error_next_quadratic(self):
 
-        return
+    def pC_pw(self, input_index):
+        for layer in range(len(self.w_list)):
+            if layer !=  len(self.w_list)-1:
+                a = self.a_lists[input_index][layer]
+                dimensions = (1,self.network_blueprint[layer+1])
+                a = np.tile(a, dimensions).T
+                error = self.error_lists[input_index][layer+1]
+                pC_pw = np.multiply(error,a)
+                self.pC_pw_list.append(pC_pw[:])
+
+    def previous_error_quadratic(self,input_index):
+        for layer in range(len(self.w_list)-2):
+            w = self.w_list[-(layer+1)]
+            z = self.z_lists[input_index][-(layer+2)]
+            error_next = self.error_list[1]
+            error = np.multiply((w.T @ error_next), (self.dsigma_dz(z)))
+            self.error_list.insert(1,error)
+        self.error_lists.append(self.error_list[:])
+
+    def dsigma_dz(self, z): # dx_dy is the derivative of x with respect to y
+        return (np.exp(-z)/((1+np.exp(-z))**2))
 
     def output_error_quadratic(self, a,z,y):
         pC_pa = (a-y) # pX_pY represents the partial derivative X with respect to Y
-        dsigma_dx = exp(-z)/((1+exp(-z))**2)  # dx_dy is the derivative of x with respect to y
-        output_error = np.multiply(pC_pa,dsigma_dx)
+        output_error = np.multiply(pC_pa,self.dsigma_dz(z))
+        self.error_list = [None,output_error]
         return output_error
 
     def total_cost(self, cost_list):
@@ -108,7 +133,7 @@ class Neural_Network():
 
 
 def main():
-    x = [np.array([[0], [4], [2], [5], [6]]), np.array([[0], [4], [3], [5], [4]])]
+    x = [np.array([[1], [4], [2], [5], [6]]), np.array([[0], [4], [3], [5], [4]])]
     y = [np.array([[1]]), np.array([[5]])]
     network = Neural_Network(input_size=5, output_size=1)
     network.add_layer(size=3)
