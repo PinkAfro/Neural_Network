@@ -11,6 +11,13 @@ class Neural_Network():
         self.output_error = self.output_error_quadratic
         self.previous_error = self.previous_error_quadratic
 
+    def clear_lists(self):
+        self.cost_list = [] # Cost of every input
+        self.error_lists = [] # List of errors where error_lists[x] is the error from input_values_lists[x]
+        self.pC_pw_list = [] # List of pC_pW for every input value for every x -> [x][layer]
+        self.error_lists = []
+        self.z_lists = []
+        self.a_lists = []
 
     def add_layer(self, size):
         self.network_blueprint.insert(-1, size)
@@ -25,7 +32,7 @@ class Neural_Network():
         self.a_lists = [] # Contains the state of the activations from every input
         self.cost_list = [] # Cost of every input
         self.error_lists = [] # List of errors where error_lists[x] is the error from input_values_lists[x]
-        self.pC_pw_list = [] # List of pC_pW for every input value
+        self.pC_pw_list = [] # List of pC_pW for every input value for every x -> [x][layer]
 
         for layer_index, j_neurons in enumerate(self.network_blueprint):
             a = np.ones(shape=(j_neurons, 1))
@@ -57,11 +64,12 @@ class Neural_Network():
 
             self.a_lists.append(self.a_list[:])
             self.z_lists.append(z_list[:])
-
+            print(a_next)
 
 
 
     def back_propogate(self, input_values_list, output_values_list):
+        self.cost_list = []
         if len(input_values_list) != len(output_values_list):
             print('Input and Output lists must be the same length')
             exit(1)
@@ -83,10 +91,54 @@ class Neural_Network():
 
         total_cost = self.total_cost(self.cost_list)
         print('cost: %s' % total_cost)
+        self.gradient_decent()
+        self.clear_lists()
         return
 
+    def gradient_decent(self):
+        error_list, n = self.sum(self.error_lists)
+        pC_pw_list, m = self.sum(self.pC_pw_list)
+
+        if n != m:
+            print('ERROR: Error list and pc_pw lists are different lengths')
+            exit(1)
+
+        b_list = [None]
+        w_list = [None]
+        for layer in range(len(self.network_blueprint)-1):
+            #Calculate gradient decent for bias
+            learning_rate = 0.3 ################################FIGURE OUT WHAT TO MAKE THIS
+            b = self.b_list[layer+1]
+            error = error_list[layer+1]
+            b = b - (learning_rate/m) * error
+            b_list.append(b)
+
+            #Calculate gradient decent for weights
+            w = self.w_list[layer+1]
+            pC_pw = pC_pw_list[layer]
+            w = w - (learning_rate/m) * pC_pw
+            w_list.append(w)
+
+        self.b_list = b_list[:]
+        self.w_list = w_list[:]
+        # print(error)
+
+
+    def sum(self, list):
+        tmp_list = []
+        for layer in range(len(list[0])):
+            tmp = None
+            for input in range(len(list)):
+                if tmp is not None:
+                    tmp = tmp + list[input][layer]
+                else:
+                    tmp = list[input][layer]
+            layer_sum = tmp
+            tmp_list.append(layer_sum)
+        return tmp_list, len(list)
 
     def pC_pw(self, input_index):
+        pC_pw_list = []
         for layer in range(len(self.w_list)):
             if layer !=  len(self.w_list)-1:
                 a = self.a_lists[input_index][layer]
@@ -94,7 +146,8 @@ class Neural_Network():
                 a = np.tile(a, dimensions).T
                 error = self.error_lists[input_index][layer+1]
                 pC_pw = np.multiply(error,a)
-                self.pC_pw_list.append(pC_pw[:])
+                pC_pw_list.append(pC_pw[:])
+        self.pC_pw_list.append(pC_pw_list[:])
 
     def previous_error_quadratic(self,input_index):
         for layer in range(len(self.w_list)-2):
@@ -133,12 +186,13 @@ class Neural_Network():
 
 
 def main():
-    x = [np.array([[1], [4], [2], [5], [6]]), np.array([[0], [4], [3], [5], [4]])]
-    y = [np.array([[1]]), np.array([[5]])]
+    x = [np.array([[0.1], [0.4], [0.2], [0.5], [0.6]]), np.array([[0.0], [0.4], [0.3], [0.5], [0.4]])]
+    y = [np.array([[0.1]]), np.array([[0.5]])]
     network = Neural_Network(input_size=5, output_size=1)
     network.add_layer(size=3)
     network.generate_network()
-    network.back_propogate(x, y)
+    for i in range(100000):
+        network.back_propogate(x, y)
     return
 
 
