@@ -1,5 +1,8 @@
 import numpy as np
+import tensorflow
 from math import *
+from mnist import MNIST
+
 
 
 class Neural_Network():
@@ -10,6 +13,17 @@ class Neural_Network():
         self.cost = self.quadratic
         self.output_error = self.output_error_quadratic
         self.previous_error = self.previous_error_quadratic
+        self.a_list = [] #acitvation neurons where the index is the layer - 1
+        self.b_list = [None] # bias where the index is the layer -1
+        self.w_list = [None] # weights where the index is the layer - 1
+        self.z_lists = [] # A list of z values from every input
+        self.a_lists = [] # Contains the state of the activations from every input
+        self.cost_list = [] # Cost of every input
+        self.error_lists = [] # List of errors where error_lists[x] is the error from input_values_lists[x]
+        self.pC_pw_list = [] # List of pC_pW for every input value for every x -> [x][layer]
+        self.tmp_a_list = []
+
+
 
     def clear_lists(self):
         self.cost_list = [] # Cost of every input
@@ -19,32 +33,46 @@ class Neural_Network():
         self.z_lists = []
         self.a_lists = []
 
+
+
+
     def add_layer(self, size):
         self.network_blueprint.insert(-1, size)
 
-    def generate_network(self):
+    def generate_network(self, load=None):
         # Generates value and weight matrix
         # j_neurons is the number of neurons in (L-1) layer, k_neurons is the number in the Lth layer
-        self.a_list = [] #acitvation neurons where the index is the layer - 1
-        self.b_list = [None] # bias where the index is the layer -1
-        self.w_list = [None] # weights where the index is the layer - 1
-        self.z_lists = [] # A list of z values from every input
-        self.a_lists = [] # Contains the state of the activations from every input
-        self.cost_list = [] # Cost of every input
-        self.error_lists = [] # List of errors where error_lists[x] is the error from input_values_lists[x]
-        self.pC_pw_list = [] # List of pC_pW for every input value for every x -> [x][layer]
+        if load:
+            self.load_network(load)
+            print('Loaded %s' % load)
+        else:
+            for layer_index, j_neurons in enumerate(self.network_blueprint):
+                a = np.ones(shape=(j_neurons, 1))
+                self.a_list.append(a)
 
-        for layer_index, j_neurons in enumerate(self.network_blueprint):
-            a = np.ones(shape=(j_neurons, 1))
-            self.a_list.append(a)
+                if layer_index != len(self.network_blueprint) - 1:
+                    k_neurons = self.network_blueprint[layer_index + 1]
+                    w = np.random.randn(k_neurons, j_neurons) * np.sqrt(2 / k_neurons)
+                    self.w_list.append(w)
 
-            if layer_index != len(self.network_blueprint) - 1:
-                k_neurons = self.network_blueprint[layer_index + 1]
-                w = np.random.randn(k_neurons, j_neurons) * np.sqrt(2 / k_neurons)
-                self.w_list.append(w)
+                    b = np.random.randn(k_neurons, 1)
+                    self.b_list.append(b)
+        self.tmp_a_list = self.a_list[:]
 
-                b = np.random.randn(k_neurons, 1)
-                self.b_list.append(b)
+
+    def save_network(self, filename):
+        names = ['_weights', '_bias', '_activations', '_network']
+        parameters = {0:self.w_list, 1:self.b_list, 2:self.tmp_a_list, 3:self.network_blueprint}
+        for index, name in enumerate(names):
+            np.savez(filename + name, parameters[index])
+
+    def load_network(self, filename):
+        names = ['_weights', '_bias', '_activations', '_network']
+        self.w_list = np.load(filename + names[0] + '.npz')['arr_0'].tolist()
+        self.b_list = np.load(filename + names[1] + '.npz')['arr_0'].tolist()
+        self.a_list = np.load(filename + names[2] + '.npz')['arr_0'].tolist()
+        self.network_blueprint = np.load(filename + names[3] + '.npz')['arr_0'].tolist()
+
 
 
     def calculate(self, input_values_list):
@@ -64,11 +92,27 @@ class Neural_Network():
 
             self.a_lists.append(self.a_list[:])
             self.z_lists.append(z_list[:])
-            print(a_next)
 
+    def test(self, input_values_list, output_values_list, normalising_thingo):
+        test = []
+        label_thingy = []
+        good_checker = 0
+        self.calculate(input_values_list)
+        listy = self.a_lists
+        for a in listy:
+            test.append(np.rint(a[-1]*normalising_thingo))
 
+        for label in output_values_list:
+            label_thingy.append(label*normalising_thingo)
 
-    def back_propogate(self, input_values_list, output_values_list):
+        for input, output in zip(test, label_thingy):
+            if input == output:
+                good_checker = good_checker + 1
+
+        print(label_thingy)
+        print(test)
+        print(good_checker/len(test) * 100)
+    def back_propogate(self, input_values_list, output_values_list, learning_rate):
         self.cost_list = []
         if len(input_values_list) != len(output_values_list):
             print('Input and Output lists must be the same length')
@@ -91,11 +135,12 @@ class Neural_Network():
 
         total_cost = self.total_cost(self.cost_list)
         print('cost: %s' % total_cost)
-        self.gradient_decent()
+        self.gradient_decent(learning_rate)
+        self.tmp_a_list = self.a_list
         self.clear_lists()
         return
 
-    def gradient_decent(self):
+    def gradient_decent(self, learning_rate):
         error_list, n = self.sum(self.error_lists)
         pC_pw_list, m = self.sum(self.pC_pw_list)
 
@@ -107,7 +152,6 @@ class Neural_Network():
         w_list = [None]
         for layer in range(len(self.network_blueprint)-1):
             #Calculate gradient decent for bias
-            learning_rate = 0.3 ################################FIGURE OUT WHAT TO MAKE THIS
             b = self.b_list[layer+1]
             error = error_list[layer+1]
             b = b - (learning_rate/m) * error
@@ -186,13 +230,40 @@ class Neural_Network():
 
 
 def main():
-    x = [np.array([[0.1], [0.4], [0.2], [0.5], [0.6]]), np.array([[0.0], [0.4], [0.3], [0.5], [0.4]])]
-    y = [np.array([[0.1]]), np.array([[0.5]])]
-    network = Neural_Network(input_size=5, output_size=1)
-    network.add_layer(size=3)
+    # x = [np.array([[0.1], [0.4], [0.2], [0.5], [0.6]]), np.array([[0.0], [0.4], [0.3], [0.5], [0.4]]),np.array([[0.1], [0.488], [0.231], [0.554], [0.6]]), np.array([[0.0], [0.45], [0.3], [0.5], [0.7]])]
+    # y = [np.array([[0.1]]), np.array([[0.5]]), np.array([[0.96]]), np.array([[0.3]])]
+    mndata = MNIST()
+    test_images, test_labels = mndata.load_testing()
+    test_labels = test_labels.tolist()
+    test_input = []
+    test_output = []
+    for image in test_images:
+        test_input.append((np.asarray(image)/255).reshape(784,1))
+    for label in test_labels:
+        test_output.append(np.asarray((label)/9).reshape(1,1))
+
+    images, labels = mndata.load_training()
+    labels = labels.tolist()
+    input = []
+    output = []
+    for image in images:
+        input.append((np.asarray(image)/255).reshape(784,1))
+    for label in labels:
+        output.append(np.asarray((label)/9).reshape(1,1))
+
+    network = Neural_Network(input_size=784, output_size=1)
+    network.add_layer(800)
     network.generate_network()
-    for i in range(100000):
-        network.back_propogate(x, y)
+
+    for iterations in range(1):
+        print('-------------------Iteration: %s -------------------------' % iterations)
+        for i in range(100):
+            network.back_propogate(input[600*i:(600*i)+600], output[600*i:(600*i)+600], learning_rate = 0.5)
+
+    network.save_network('MNIST_2')
+    network.test(test_input, test_output, 9)
+
+
     return
 
 
