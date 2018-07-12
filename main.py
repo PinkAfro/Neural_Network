@@ -4,6 +4,7 @@ import tensorflow as tf
 from math import *
 from mnist import MNIST
 import time
+import os
 
 
 class Neural_Network_Numpy():
@@ -224,6 +225,7 @@ class Neural_Network_Numpy():
 
 class Neural_Network_Tensor:
     def __init__(self, inputs=None, outputs=None, load=None):
+        tf.enable_eager_execution()
         self.activation = self.sigmoid
         if load:
             self.load(load)
@@ -234,8 +236,9 @@ class Neural_Network_Tensor:
             self.w = [None]
             self.b = [None]
             self.z_layers = []
-            self.a_layers = [None]
+            self.a_layers = []
             self.error_list = [None]
+            self.gradient_list = []
 
 
         else:
@@ -244,90 +247,127 @@ class Neural_Network_Tensor:
 
     def clear_lists(self):
         self.z_layers = []
-        self.a_layers = [None]
+        self.a_layers = []
         self.error_list = [None]
+        self.gradient_list = []
 
     def add_layer(self, neurons):
         self.layers_neurons.append(neurons)
 
     def generate_network(self):
-        self.a = tf.placeholder(np.float64)
+        # self.a = tf.placeholder(np.float64)
+        # a = np.ones(shape=(j_neurons, 1))
         self.layers_neurons.append(self.outputs)
         self.layers_neurons.insert(0, self.inputs)
         for index in range(len(self.layers_neurons) - 1):
-            w = tf.Variable(
-                tf.truncated_normal([self.layers_neurons[index + 1], self.layers_neurons[index]], dtype=np.float64),
-                name='weights')
-            b = tf.Variable(tf.ones([self.layers_neurons[index + 1], 1], dtype=np.float64), name='bias')
+            w = tf.truncated_normal([self.layers_neurons[index + 1], self.layers_neurons[index]], dtype=np.float64)
+            b = tf.ones([self.layers_neurons[index + 1], 1], dtype=np.float64)
             self.w.append(w)
             self.b.append(b)
 
     def calculate(self, input_array):
-        self.length = len(input_array)
         self.clear_lists()
-        init_g = tf.global_variables_initializer()
-        init_l = tf.local_variables_initializer()
-        sess = tf.Session()
+        self.length = len(input_array)
+        # init_g = tf.global_variables_initializer()
+        # init_l = tf.local_variables_initializer()
+        # sess = tf.Session()
+        #
+        # # a = self.a
+        self.a_layers.append(input_array.T)  # Set the first layer to the input
 
-        a = self.a
+        for layer_index in range(len(self.layers_neurons) - 1):  # (len(self.w)-1):
+            z = tf.matmul(self.w[layer_index + 1], self.a_layers[layer_index]) + self.b[layer_index + 1]
+            activation = self.sigmoid(z)
 
-        self.a_layers[0] = input_array.T  # Set the first layer to the input
-        with sess as sess:
-            sess.run(init_g)  # Initialise Global Variables
-            sess.run(init_l)  # Initialise Local Variables
+            self.a_layers.append(activation)
+            self.z_layers.append(z)
 
-            for layer_index in range(len(self.layers_neurons) - 1):  # (len(self.w)-1):
-                w = self.w[layer_index + 1]
-                b = self.b[layer_index + 1]
-
-                start = time.time()
-                inputs = self.a_layers[layer_index]
-                z = tf.matmul(w, a) + b
-                z_layer = sess.run(z, {a: inputs})
-                activation = self.sigmoid(z_layer)
-                self.a_layers.append(activation)
-                self.z_layers.append(z_layer)
-                end = time.time()
+        self.neural_output = activation
 
     def cost_gradient(self):
-        for layer in range(len(self.a_layers)-1):
-            a = self.a_layers[layer]
-            error = self.error_list[layer + 1]
-            print(a.shape)
-            print(error.shape)
-            print('-----------------------------')
-            a = a[np.newaxis,:,:]
-            a = np.tile(a,(self.layers_neurons[layer + 1],1))
-            error = error[:,np.newaxis,:]
-            print(a.shape)
-            print(error.shape)
-            print('-----------------------------')
-
-    def calculate_error(self, input, output):
-        self.calculate(input)
-        output_error = self.output_error_quadratic(output)
-        self.backpropogate_error(output_error)
-        self.cost_gradient()
-
-    def backpropogate_error(self, output_error):
         init_g = tf.global_variables_initializer()
         init_l = tf.local_variables_initializer()
 
+        a = self.a_layers[0]
+        error = self.error_list[1]
+
+        for layer in range(len(self.a_layers) - 1):
+            a = self.a_layers[layer]
+            error = self.error_list[layer + 1]
+            error = tf.transpose(error)
+            cost = tf.matmul(a, error)
+            self.gradient_list.append(cost)
+
+    def gradient_decent(self, learning_rate):
+        w_list = [None]
+        b_list = [None]
+        m = self.length
+        for layer in range(len(self.w) - 1):
+            error = self.error_list[layer + 1]
+            error = tf.reduce_sum(error, 1, keepdims=True)
+
+            gradient = tf.transpose(self.gradient_list[layer])
+
+            w = self.w[layer + 1]
+            b = self.b[layer + 1]
+
+            b = b - (learning_rate / m) * error
+            w = w - (learning_rate / m) * gradient
+
+            w_list.append(w)
+            b_list.append(b)
+
+        self.w = w_list[:]
+        self.b = b_list[:]
+        return
+
+    def train(self, input, output, learning_rate):
+        start_calc = time.time()
+        self.calculate(input)
+        end_calc = time.time()
+
+        start_out_error = time.time()
+        output_error = self.output_error_quadratic(output)
+        end_out_error = time.time()
+
+        start_back = time.time()
+        self.backpropogate_error(output_error)
+        end_back = time.time()
+
+        start_cost = time.time()
+        self.cost_gradient()
+        end_cost = time.time()
+
+        start_decent = time.time()
+        self.gradient_decent(learning_rate)
+        end_decent = time.time()
+
+        # start_cost_final = time.time()
+        # cost = self.quadratic(self.neural_output, output)
+        # end_cost_final = time.time()
+
+        # print('Calculate: %s\nOutput_error: %s\nBackpropogate: %s\nCost_gradient: %s\nGradient_Decent: %s\nCost: %s\nTotal: %s' % (
+        #     end_calc - start_calc, end_out_error - start_out_error, end_back - start_back, end_cost - start_cost,
+        #     end_decent - start_decent, end_cost_final-start_cost_final, end_cost_final-start_calc))
+
+
+    def backpropogate_error(self, output_error):
         self.error_list.append(output_error)
+
         for layer in range(len(self.layers_neurons) - 2):
             w = tf.transpose(self.w[-(layer + 1)])
             z = self.z_layers[-(layer + 2)]
             error_next = self.error_list[1]
-
-            with tf.Session() as sess:
-                sess.run(init_g)  # Initialise Global Variables
-                sess.run(init_l)  # Initialise Local Variables
-
-                dot_tmp = tf.matmul(w, error_next)
-                w_dot_error = sess.run(dot_tmp)
-                error = np.multiply((w_dot_error), (self.dsigma_dz(z)))
-
+            w_dot_error = tf.matmul(w, error_next)
+            error = np.multiply((w_dot_error), (self.dsigma_dz(z)))
             self.error_list.insert(1, error)
+
+    def quadratic(self, neural_output, output_correct):
+        # print(output_correct.shape, neural_output.T.shape)
+        magnitude = output_correct - neural_output.flatten()
+        # cost = (1/self.length)*(np.linalg.norm((1 / 2) * (magnitude ** 2)))
+        cost = np.average((1 / 2) * (magnitude ** 2))
+        return cost
 
     def output_error_quadratic(self, output):
         a = self.a_layers[-1]
@@ -345,11 +385,41 @@ class Neural_Network_Tensor:
         z = np.clip(z, np.finfo(np.float64).min, np.finfo(np.float64).max)
         return (np.exp(-z) / ((1 + np.exp(-z)) ** 2))
 
+    def save(self, filename):
+        names = ['_weights', '_bias', '_network']
+        parameters = {0: self.w, 1: self.b,2: self.layers_neurons}
+        for index, name in enumerate(names):
+            tmp = []
+            for layer in parameters[index]:
+                if layer is not None:
+                    tmp.append(np.array(layer))
+                else:
+                    tmp.append(layer)
+            np.savez(filename + name, tmp)
+    #
     def load(self, filename):
-        return
+        names = ['_weights', '_bias', '_network']
+        self.w = np.load(filename + names[0] + '.npz')['arr_0'].tolist()
+        self.b = np.load(filename + names[1] + '.npz')['arr_0'].tolist()
+        self.layers_neurons = np.load(filename + names[2] + '.npz')['arr_0'].tolist()
+
+    def training_loop(self, inputs, labels, batch_size, epochs, learning_rate, save=False):
+        for epoch in range(epochs):
+            total_cost = 0
+            iterations = (int(ceil(len(inputs) / batch_size)))
+            for i in range(iterations):
+                try:
+                    self.train(inputs[i * batch_size:(i * batch_size) + batch_size],
+                                      labels[i * batch_size:(i * batch_size) + batch_size], learning_rate=learning_rate)
+                except():
+                    self.train(inputs[i * batch_size:],
+                                      labels[i * batch_size:], learning_rate=learning_rate)
+            print(epoch)
+        if save:
+            self.save(save)
 
 
-def normalise(data):  #############DODGY METHOD
+def normalise(data):  #############DODGY METHOD (Works only if lower bound is 0)
     max_value = 0
     for _ in data:
         try:
@@ -364,9 +434,18 @@ def normalise(data):  #############DODGY METHOD
 
 
 def main():
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
     # t_network = Neural_Network_Tensor(3,1)
     # t_network.add_layer(3)
     # t_network.generate_network()
+    # input_data = np.asarray([[1,6,4,3,2],[7,7,5,4,3],[9,5,6,7,5]])#np.asarray([[0,3,5,6,7],[1,8,3,9,8],[9,7,6,8,6]])
+    # output = np.asarray([[1],[7],[9]]).T
+
+    # input_data, normaliser_output = normalise(input_data)
+    # output, normaliser_output = normalise(output)
+    #
+    # print(input_data.shape, output.shape)
+    # print(type(input_data),type(output))
 
     mndata = MNIST()
     images, labels = mndata.load_testing()
@@ -375,14 +454,42 @@ def main():
     images, normaliser_images = normalise(images)
     labels, normaliser_labels = normalise(labels)
 
+
+
+    print(images.shape)
+    print(labels.shape)
+
     t_network = Neural_Network_Tensor(inputs=784, outputs=1)
     t_network.add_layer(500)
     t_network.add_layer(200)
-    t_network.add_layer(5)
-    t_network.generate_network()
-    # t_network.calculate(input)
-    t_network.calculate(images)
-    t_network.calculate_error(images, labels)
+    t_network.add_layer(3)
+    # t_network.generate_network()
+    t_network.load('tf_test')
+    t_network.training_loop(images, labels, batch_size=1000, epochs=10000, learning_rate=0.2, save='Digit_Recognition')
+
+
+    #Test_Network
+    #2481
+    #5893
+    #
+    #
+    # t_network.calculate(images)
+    # output = t_network.neural_output.flatten()
+    # output = np.round(output*normaliser_labels)
+    # labels = labels * normaliser_labels
+    # check = output-labels
+    # print((check == 0).sum())
+
+    #
+    # for iterations in range(10):
+    #     print('-------------------Iteration: %s -------------------------' % iterations)
+    #     for i in range(6):
+    #         t_network.train(images[], labels, learning_rate=0.5)
+
+    # for iterations in range(10):
+    #     print('-------------------Iteration: %s -------------------------' % iterations)
+    #     for i in range(6):
+    #         t_network.train(images[10000*i:(10000*i)+10000], labels[10000*i:(10000*i)+10000], learning_rate = 0.5)
 
     # tf.executing_eagerly()
     # mndata = MNIST()
