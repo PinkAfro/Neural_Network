@@ -5,6 +5,7 @@ from math import *
 from mnist import MNIST
 import time
 import os
+import matplotlib.pyplot as plt
 
 
 class Neural_Network_Numpy():
@@ -240,6 +241,14 @@ class Neural_Network_Tensor:
             self.error_list = [None]
             self.gradient_list = []
 
+            #Adam Variables
+            self.adam_first = False
+            self.m_layer = []
+            self.v_layer = []
+            self.m_layer_bias = []
+            self.v_layer_bias = []
+
+
 
         else:
             print('ERROR: Inputs or Outputs not specified')
@@ -321,6 +330,64 @@ class Neural_Network_Tensor:
         self.b = b_list[:]
         return
 
+    def adam(self):
+        #NEED TO OPTIMIZE
+        #USE TENSORFLOW ISNTEAD OF NUMPY
+
+        learning_rate = 0.001
+        beta_1 = 0.9
+        beta_2 = 0.999
+        epsilon = 10**(-8)
+
+        w_list = [None]
+        b_list = [None]
+        for layer in range(len(self.w) - 1):
+            error = self.error_list[layer + 1]
+            error = tf.reduce_sum(error, 1, keepdims=True)
+
+            gradient = tf.transpose(self.gradient_list[layer])
+
+            w = self.w[layer + 1]
+            b = self.b[layer + 1]
+
+            if not self.adam_first:
+                self.m_layer.append((1 - beta_1) * gradient)
+                self.v_layer.append((1 - beta_2) * (gradient ** 2))
+                self.m_layer_bias.append((1 - beta_1) * error)
+                self.v_layer_bias.append((1 - beta_2) * (error ** 2))
+
+
+            m = self.m_layer[layer]
+            v = self.v_layer[layer]
+            m_bias = self.m_layer_bias[layer]
+            v_bias = self.v_layer_bias[layer]
+
+            m_1 = beta_1 * m + (1 - beta_1) * gradient
+            v_1 = beta_2 * v + (1 - beta_2) * (gradient ** 2)
+            m_1_bias = beta_1 * m_bias + (1 - beta_1) * error
+            v_1_bias = beta_2 * v_bias + (1 - beta_2) * (error ** 2)
+
+            self.m_layer[layer] = m_1
+            self.v_layer[layer] = v_1
+            self.m_layer_bias[layer] = m_1_bias
+            self.v_layer_bias[layer] = v_1_bias
+
+            m_bias_corrected = (m_1)/(1-beta_1)
+            v_bias_corrected = (v_1)/(1-beta_2)
+            m_bias_corrected_bias = (m_1_bias)/(1-beta_1)
+            v_bias_corrected_bias = (v_1_bias)/(1-beta_2)
+
+            b = b - (learning_rate / (np.sqrt(v_bias_corrected_bias) + epsilon)) * m_bias_corrected_bias
+            w = w - (learning_rate / (np.sqrt(v_bias_corrected)+epsilon)) * m_bias_corrected
+
+            w_list.append(w)
+            b_list.append(b)
+
+        self.w = w_list[:]
+        self.b = b_list[:]
+        self.adam_first = True
+        return
+
     def train(self, input, output, learning_rate):
         start_calc = time.time()
         self.calculate(input)
@@ -339,17 +406,18 @@ class Neural_Network_Tensor:
         end_cost = time.time()
 
         start_decent = time.time()
-        self.gradient_decent(learning_rate)
+        # self.gradient_decent(learning_rate)
+        self.adam()
         end_decent = time.time()
 
-        # start_cost_final = time.time()
-        # cost = self.quadratic(self.neural_output, output)
-        # end_cost_final = time.time()
+        start_cost_final = time.time()
+        cost = self.quadratic(self.neural_output, output)
+        end_cost_final = time.time()
 
         # print('Calculate: %s\nOutput_error: %s\nBackpropogate: %s\nCost_gradient: %s\nGradient_Decent: %s\nCost: %s\nTotal: %s' % (
         #     end_calc - start_calc, end_out_error - start_out_error, end_back - start_back, end_cost - start_cost,
         #     end_decent - start_decent, end_cost_final-start_cost_final, end_cost_final-start_calc))
-
+        return cost
 
     def backpropogate_error(self, output_error):
         self.error_list.append(output_error)
@@ -364,16 +432,17 @@ class Neural_Network_Tensor:
 
     def quadratic(self, neural_output, output_correct):
         # print(output_correct.shape, neural_output.T.shape)
-        magnitude = output_correct - neural_output.flatten()
+        magnitude = output_correct - neural_output.T
         # cost = (1/self.length)*(np.linalg.norm((1 / 2) * (magnitude ** 2)))
-        cost = np.average((1 / 2) * (magnitude ** 2))
+        cost_tmp = ((1 / 2) * (magnitude ** 2))
+        cost = np.average(cost_tmp)
         return cost
 
     def output_error_quadratic(self, output):
         a = self.a_layers[-1]
         z = self.a_layers[-1]
 
-        pC_pa = (a - output)  # pX_pY represents the partial derivative X with respect to Y
+        pC_pa = (a - output.T)  # pX_pY represents the partial derivative X with respect to Y
         output_error = np.multiply(pC_pa, self.dsigma_dz(z))
 
         return output_error
@@ -387,7 +456,7 @@ class Neural_Network_Tensor:
 
     def save(self, filename):
         names = ['_weights', '_bias', '_network']
-        parameters = {0: self.w, 1: self.b,2: self.layers_neurons}
+        parameters = {0: self.w, 1: self.b, 2: self.layers_neurons}
         for index, name in enumerate(names):
             tmp = []
             for layer in parameters[index]:
@@ -396,6 +465,7 @@ class Neural_Network_Tensor:
                 else:
                     tmp.append(layer)
             np.savez(filename + name, tmp)
+
     #
     def load(self, filename):
         names = ['_weights', '_bias', '_network']
@@ -409,13 +479,26 @@ class Neural_Network_Tensor:
             iterations = (int(ceil(len(inputs) / batch_size)))
             for i in range(iterations):
                 try:
-                    self.train(inputs[i * batch_size:(i * batch_size) + batch_size],
+                    cost = self.train(inputs[i * batch_size:(i * batch_size) + batch_size],
                                       labels[i * batch_size:(i * batch_size) + batch_size], learning_rate=learning_rate)
                 except():
-                    self.train(inputs[i * batch_size:],
+                    cost = self.train(inputs[i * batch_size:],
                                       labels[i * batch_size:], learning_rate=learning_rate)
-            print(epoch)
+                total_cost = total_cost + cost
+            average_cost = total_cost / iterations
+            try:
+                change = last_cost - average_cost
+                print('Average Cost: %s\t\tChange: %s' % (average_cost, change))
+                # if change < 0.0001:
+                #     print('Converged:')
+                #     break
+            except(UnboundLocalError):
+                print('Average Cost: %s' % average_cost)
+
+            last_cost = average_cost
+
         if save:
+            print('Saving...')
             self.save(save)
 
 
@@ -432,6 +515,11 @@ def normalise(data):  #############DODGY METHOD (Works only if lower bound is 0)
 
     return data / max_value, max_value
 
+def ind2vec(ind, N=None):
+    ind = np.asarray(ind)
+    if N is None:
+        N = ind.max() + 1
+    return (np.arange(N) == ind[:,None]).astype(int)
 
 def main():
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -448,76 +536,88 @@ def main():
     # print(type(input_data),type(output))
 
     mndata = MNIST()
-    images, labels = mndata.load_testing()
+    images, labels = mndata.load_training()
     labels = np.asarray(labels, dtype=np.float64)
     images = np.asarray(images, dtype=np.float64)
     images, normaliser_images = normalise(images)
-    labels, normaliser_labels = normalise(labels)
+    # labels, normaliser_labels = normalise(labels)
+    labels = ind2vec(labels,10)
+    print(labels)
 
-
+    images_testing, labels_testing = mndata.load_training()
+    labels_testing = np.asarray(labels_testing, dtype=np.float64)
+    images_testing = np.asarray(images_testing, dtype=np.float64)
+    images_testing, normaliser_images_testing = normalise(images_testing)
+    # labels_testing, normaliser_labels_testing = normalise(labels_testing)
 
     print(images.shape)
     print(labels.shape)
 
-    t_network = Neural_Network_Tensor(inputs=784, outputs=1)
-    t_network.add_layer(500)
-    t_network.add_layer(200)
-    t_network.add_layer(3)
-    # t_network.generate_network()
-    t_network.load('tf_test')
-    t_network.training_loop(images, labels, batch_size=1000, epochs=10000, learning_rate=0.2, save='Digit_Recognition')
+    t_network = Neural_Network_Tensor(inputs=784, outputs=10)
+    t_network.add_layer(300)
+    t_network.generate_network()
+    t_network.load('Adam')
 
+    # for i in range(1):
+    #     convergence = t_network.training_loop(images, labels, batch_size=100, epochs=30, learning_rate=0.001,
+    #                                           save='Adam')
+    t_network.calculate(images_testing)
+    output = t_network.neural_output
+    output = output.argmax(axis=0)
+    # labels_testing = labels_testing * normaliser_labels_testing
+    check = output - labels_testing
+    print((check == 0).sum())
+        # Test_Network
+        # 3 LAYER
+        # 2481
+        # 5893
+        # 6078
+        #
+        # 1 LAYER
+        # 3245
+        # 3670
+        # 5671
+        # 5741
+        # 5747
+        # 5751
 
-    #Test_Network
-    #2481
-    #5893
-    #
-    #
-    # t_network.calculate(images)
-    # output = t_network.neural_output.flatten()
-    # output = np.round(output*normaliser_labels)
-    # labels = labels * normaliser_labels
-    # check = output-labels
-    # print((check == 0).sum())
+        #
+        # for iterations in range(10):
+        #     print('-------------------Iteration: %s -------------------------' % iterations)
+        #     for i in range(6):
+        #         t_network.train(images[], labels, learning_rate=0.5)
 
-    #
-    # for iterations in range(10):
-    #     print('-------------------Iteration: %s -------------------------' % iterations)
-    #     for i in range(6):
-    #         t_network.train(images[], labels, learning_rate=0.5)
+        # for iterations in range(10):
+        #     print('-------------------Iteration: %s -------------------------' % iterations)
+        #     for i in range(6):
+        #         t_network.train(images[10000*i:(10000*i)+10000], labels[10000*i:(10000*i)+10000], learning_rate = 0.5)
 
-    # for iterations in range(10):
-    #     print('-------------------Iteration: %s -------------------------' % iterations)
-    #     for i in range(6):
-    #         t_network.train(images[10000*i:(10000*i)+10000], labels[10000*i:(10000*i)+10000], learning_rate = 0.5)
+        # tf.executing_eagerly()
+        # mndata = MNIST()
+        # test_images, test_labels = mndata.load_testing()
+        # test_labels = test_labels.tolist()
+        # test_input = []
+        # test_output = []
+        # for image in test_images:
+        #     test_input.append((np.asarray(image)/255).reshape(784,1))
+        # for label in test_labels:
+        #     test_output.append(np.asarray((label)/9).reshape(1,1))
+        #
 
-    # tf.executing_eagerly()
-    # mndata = MNIST()
-    # test_images, test_labels = mndata.load_testing()
-    # test_labels = test_labels.tolist()
-    # test_input = []
-    # test_output = []
-    # for image in test_images:
-    #     test_input.append((np.asarray(image)/255).reshape(784,1))
-    # for label in test_labels:
-    #     test_output.append(np.asarray((label)/9).reshape(1,1))
-    #
-
-    #
-    # network = Neural_Network(input_size=784, output_size=1)
-    # network.add_layer(800)
-    # network.generate_network()
-    #
-    # for iterations in range(1):
-    #     print('-------------------Iteration: %s -------------------------' % iterations)
-    #     for i in range(100):
-    #         network.back_propogate(input[600*i:(600*i)+600], output[600*i:(600*i)+600], learning_rate = 0.5)
-    #
-    # network.save_network('MNIST_2')
-    # network.test(test_input, test_output, 9)
+        #
+        # network = Neural_Network(input_size=784, output_size=1)
+        # network.add_layer(800)
+        # network.generate_network()
+        #
+        # for iterations in range(1):
+        #     print('-------------------Iteration: %s -------------------------' % iterations)
+        #     for i in range(100):
+        #         network.back_propogate(input[600*i:(600*i)+600], output[600*i:(600*i)+600], learning_rate = 0.5)
+        #
+        # network.save_network('MNIST_2')
+        # network.test(test_input, test_output, 9)
 
     return
-
 
 if __name__ == "__main__":
     main()
