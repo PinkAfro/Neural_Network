@@ -226,6 +226,7 @@ class Neural_Network_Numpy():
 
 class Neural_Network_Tensor:
     def __init__(self, inputs=None, outputs=None, load=None):
+        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
         tf.enable_eager_execution()
         self.activation = self.sigmoid
         if load:
@@ -264,8 +265,6 @@ class Neural_Network_Tensor:
         self.layers_neurons.append(neurons)
 
     def generate_network(self):
-        # self.a = tf.placeholder(np.float64)
-        # a = np.ones(shape=(j_neurons, 1))
         self.layers_neurons.append(self.outputs)
         self.layers_neurons.insert(0, self.inputs)
         for index in range(len(self.layers_neurons) - 1):
@@ -277,11 +276,6 @@ class Neural_Network_Tensor:
     def calculate(self, input_array):
         self.clear_lists()
         self.length = len(input_array)
-        # init_g = tf.global_variables_initializer()
-        # init_l = tf.local_variables_initializer()
-        # sess = tf.Session()
-        #
-        # # a = self.a
         self.a_layers.append(input_array.T)  # Set the first layer to the input
 
         for layer_index in range(len(self.layers_neurons) - 1):  # (len(self.w)-1):
@@ -431,9 +425,7 @@ class Neural_Network_Tensor:
             self.error_list.insert(1, error)
 
     def quadratic(self, neural_output, output_correct):
-        # print(output_correct.shape, neural_output.T.shape)
         magnitude = output_correct - neural_output.T
-        # cost = (1/self.length)*(np.linalg.norm((1 / 2) * (magnitude ** 2)))
         cost_tmp = ((1 / 2) * (magnitude ** 2))
         cost = np.average(cost_tmp)
         return cost
@@ -489,9 +481,9 @@ class Neural_Network_Tensor:
             try:
                 change = last_cost - average_cost
                 print('Average Cost: %s\t\tChange: %s' % (average_cost, change))
-                # if change < 0.0001:
-                #     print('Converged:')
-                #     break
+                if change < 0.0001:
+                    print('Converged:')
+                    break
             except(UnboundLocalError):
                 print('Average Cost: %s' % average_cost)
 
@@ -522,7 +514,7 @@ def ind2vec(ind, N=None):
     return (np.arange(N) == ind[:,None]).astype(int)
 
 def main():
-    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
     # t_network = Neural_Network_Tensor(3,1)
     # t_network.add_layer(3)
     # t_network.generate_network()
@@ -542,44 +534,28 @@ def main():
     images, normaliser_images = normalise(images)
     # labels, normaliser_labels = normalise(labels)
     labels = ind2vec(labels,10)
-    print(labels)
 
-    images_testing, labels_testing = mndata.load_training()
+    images_testing, labels_testing = mndata.load_testing()
     labels_testing = np.asarray(labels_testing, dtype=np.float64)
     images_testing = np.asarray(images_testing, dtype=np.float64)
     images_testing, normaliser_images_testing = normalise(images_testing)
     # labels_testing, normaliser_labels_testing = normalise(labels_testing)
 
-    print(images.shape)
-    print(labels.shape)
 
-    t_network = Neural_Network_Tensor(inputs=784, outputs=10)
+    t_network = Neural_Network_Tensor(inputs=784, outputs=784)
     t_network.add_layer(300)
     t_network.generate_network()
-    t_network.load('Adam')
+    # t_network.load('Auto_Encoder')
 
-    # for i in range(1):
-    #     convergence = t_network.training_loop(images, labels, batch_size=100, epochs=30, learning_rate=0.001,
-    #                                           save='Adam')
-    t_network.calculate(images_testing)
-    output = t_network.neural_output
-    output = output.argmax(axis=0)
-    # labels_testing = labels_testing * normaliser_labels_testing
-    check = output - labels_testing
-    print((check == 0).sum())
-        # Test_Network
-        # 3 LAYER
-        # 2481
-        # 5893
-        # 6078
-        #
-        # 1 LAYER
-        # 3245
-        # 3670
-        # 5671
-        # 5741
-        # 5747
-        # 5751
+    for i in range(1):
+        convergence = t_network.training_loop(images, images, batch_size=100, epochs=30, learning_rate=0.001,
+                                              save='Auto_Encoder')
+    # t_network.calculate(images_testing)
+    # output = t_network.neural_output
+    # output = output.argmax(axis=0)
+    # check = output - labels_testing
+    # print((check == 0).sum())
+
 
         #
         # for iterations in range(10):
