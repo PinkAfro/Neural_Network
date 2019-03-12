@@ -1,11 +1,14 @@
 from __future__ import absolute_import, division, print_function
 import numpy as np
 import tensorflow as tf
+from tensorflow.examples.tutorials.mnist import input_data
 from math import *
-from mnist import MNIST
 import time
 import os
-import matplotlib.pyplot as plt
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+tf.enable_eager_execution()
+
 
 # Inefficient as it mainly uses element wise operations
 class Neural_Network_Numpy():
@@ -223,11 +226,10 @@ class Neural_Network_Numpy():
         magnitude = np.linalg.norm(y - a)
         return (1 / 2) * (magnitude ** 2)
 
+
 # Significantly improved efficiency by using Tensorflow as well as less element wise operations
 class Neural_Network_Tensor:
     def __init__(self, inputs=None, outputs=None, load=None):
-        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-        tf.enable_eager_execution()
         self.activation = self.sigmoid
         if load:
             self.load(load)
@@ -242,7 +244,7 @@ class Neural_Network_Tensor:
             self.error_list = [None]
             self.gradient_list = []
 
-            #Adam Variables
+            # Adam Variables
             self.adam_first = False
             self.m_layer = []
             self.v_layer = []
@@ -255,7 +257,7 @@ class Neural_Network_Tensor:
             print('ERROR: Inputs or Outputs not specified')
             exit(1)
 
-    #Reset variables from previous calculation
+    # Reset variables from previous calculation
     def clear_lists(self):
         self.z_layers = []
         self.a_layers = []
@@ -305,7 +307,6 @@ class Neural_Network_Tensor:
             cost = tf.matmul(a, error)
             self.gradient_list.append(cost)
 
-
     # Adjust network weights through gradient decent
     def gradient_decent(self, learning_rate):
         w_list = [None]
@@ -336,7 +337,7 @@ class Neural_Network_Tensor:
         learning_rate = 0.001
         beta_1 = 0.9
         beta_2 = 0.999
-        epsilon = 10**(-8)
+        epsilon = 10 ** (-8)
 
         w_list = [None]
         b_list = [None]
@@ -355,7 +356,6 @@ class Neural_Network_Tensor:
                 self.m_layer_bias.append((1 - beta_1) * error)
                 self.v_layer_bias.append((1 - beta_2) * (error ** 2))
 
-
             m = self.m_layer[layer]
             v = self.v_layer[layer]
             m_bias = self.m_layer_bias[layer]
@@ -371,13 +371,13 @@ class Neural_Network_Tensor:
             self.m_layer_bias[layer] = m_1_bias
             self.v_layer_bias[layer] = v_1_bias
 
-            m_bias_corrected = (m_1)/(1-beta_1)
-            v_bias_corrected = (v_1)/(1-beta_2)
-            m_bias_corrected_bias = (m_1_bias)/(1-beta_1)
-            v_bias_corrected_bias = (v_1_bias)/(1-beta_2)
+            m_bias_corrected = (m_1) / (1 - beta_1)
+            v_bias_corrected = (v_1) / (1 - beta_2)
+            m_bias_corrected_bias = (m_1_bias) / (1 - beta_1)
+            v_bias_corrected_bias = (v_1_bias) / (1 - beta_2)
 
             b = b - (learning_rate / (np.sqrt(v_bias_corrected_bias) + epsilon)) * m_bias_corrected_bias
-            w = w - (learning_rate / (np.sqrt(v_bias_corrected)+epsilon)) * m_bias_corrected
+            w = w - (learning_rate / (np.sqrt(v_bias_corrected) + epsilon)) * m_bias_corrected
 
             w_list.append(w)
             b_list.append(b)
@@ -493,7 +493,7 @@ class Neural_Network_Tensor:
             try:
                 change = last_cost - average_cost
                 print('Average Cost: %s\t\tChange: %s' % (average_cost, change))
-                if change < 0.0001:
+                if change < 0.0001: # Stop training if there is minimal improvement in the networks performance
                     print('Converged:')
                     break
             except(UnboundLocalError):
@@ -505,8 +505,9 @@ class Neural_Network_Tensor:
             print('Saving...')
             self.save(save)
 
-# Normalise the data
-def normalise(data):  #############DODGY METHOD (Works only if lower bound is 0)
+
+# Normalise the data (Only if lower bound is 0)
+def normalise(data):
     max_value = 0
     for _ in data:
         try:
@@ -519,47 +520,56 @@ def normalise(data):  #############DODGY METHOD (Works only if lower bound is 0)
 
     return data / max_value, max_value
 
+
 # Convert input into vector form -> An output of 2 becomes [0,0,1,0,0,0,0,0,0,0] when a valid output is (0-10)
 def ind2vec(ind, N=None):
     ind = np.asarray(ind)
     if N is None:
         N = ind.max() + 1
-    return (np.arange(N) == ind[:,None]).astype(int)
+    return (np.arange(N) == ind[:, None]).astype(int)
+
 
 def main():
+    # Load/Process Inputs and outputs
+    mndata = input_data.read_data_sets("MNIST_DATA/")
 
+    images_train = mndata.train.images  # training set
+    labels_train = mndata.train.labels
+    images_test = mndata.test.images  # testing set
+    labels_test = mndata.test.labels
 
-    # Test with mnist dataset
-    mndata = MNIST()
-    images, labels = mndata.load_training()
-    labels = np.asarray(labels, dtype=np.float64)
-    images = np.asarray(images, dtype=np.float64)
-    images, normaliser_images = normalise(images)
-    labels = ind2vec(labels,10)
+    labels_train = np.asarray(labels_train, dtype=np.float64)
+    images_train = np.asarray(images_train, dtype=np.float64)
+    labels_train = ind2vec(labels_train, 10)
 
-    images_testing, labels_testing = mndata.load_testing()
-    labels_testing = np.asarray(labels_testing, dtype=np.float64)
-    images_testing = np.asarray(images_testing, dtype=np.float64)
-    images_testing, normaliser_images_testing = normalise(images_testing)
+    labels_test = np.asarray(labels_test, dtype=np.float64)
+    images_test = np.asarray(images_test, dtype=np.float64)
+    labels_test = ind2vec(labels_test, 10)
 
-
+    # Create the network
     t_network = Neural_Network_Tensor(inputs=784, outputs=10)
     t_network.add_layer(300)
     t_network.generate_network()
 
     # Train network
-    for i in range(1):
-        convergence = t_network.training_loop(images, images, batch_size=100, epochs=30, learning_rate=0.001,
-                                              save='MNIST')
+    t_network.training_loop(
+        images_train,
+        labels_train,
+        batch_size=100,
+        epochs=30,
+        learning_rate=0.001,
+        save='MNIST')
 
-    # Calculate network perforamnce
-    t_network.calculate(images_testing)
+    # Calculate network performance
+    t_network.calculate(images_test)
     output = t_network.neural_output
     output = output.argmax(axis=0)
-    check = output - labels_testing
-    print((check == 0).sum())
+    output = ind2vec(output, 10)
+    check = output - labels_test
+    print(np.sum(check.any(1)))  # Number of failed predictions
 
     return
+
 
 if __name__ == "__main__":
     main()
