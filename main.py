@@ -10,6 +10,285 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 tf.enable_eager_execution()
 
 
+# Significantly improved efficiency by using Tensorflow in combination with vectorized operations
+class Neural_Network_Tensor:
+    def __init__(self, inputs=None, outputs=None, load=None):
+        self.activation = self.sigmoid
+        if load:
+            self.load(load)
+        elif inputs and outputs:
+            self.inputs = inputs
+            self.outputs = outputs
+            self.layers_neurons = []
+            self.w = [None]
+            self.b = [None]
+            self.z_layers = []
+            self.a_layers = []
+            self.error_list = [None]
+            self.gradient_list = []
+
+            # Adam Variables
+            self.adam_first = False
+            self.m_layer = []
+            self.v_layer = []
+            self.m_layer_bias = []
+            self.v_layer_bias = []
+
+
+
+        else:
+            print('ERROR: Inputs or Outputs not specified')
+            exit(1)
+
+    # Reset variables from previous calculation
+    def clear_lists(self):
+        self.z_layers = []
+        self.a_layers = []
+        self.error_list = [None]
+        self.gradient_list = []
+
+    def add_layer(self, neurons):
+        self.layers_neurons.append(neurons)
+
+    # Create the network with the previously specified dimensions
+    def generate_network(self):
+        self.layers_neurons.append(self.outputs)
+        self.layers_neurons.insert(0, self.inputs)
+        for index in range(len(self.layers_neurons) - 1):
+            w = tf.truncated_normal([self.layers_neurons[index + 1], self.layers_neurons[index]], dtype=np.float64)
+            b = tf.ones([self.layers_neurons[index + 1], 1], dtype=np.float64)
+            self.w.append(w)
+            self.b.append(b)
+
+    # Calculate forward pass of the network
+    def calculate(self, input_array):
+        self.clear_lists()
+        self.length = len(input_array)
+        self.a_layers.append(input_array.T)  # Set the first layer to the input
+
+        for layer_index in range(len(self.layers_neurons) - 1):
+            z = tf.matmul(self.w[layer_index + 1], self.a_layers[layer_index]) + self.b[layer_index + 1]
+            activation = self.sigmoid(z)
+
+            self.a_layers.append(activation)
+            self.z_layers.append(z)
+
+        self.neural_output = activation
+
+    # Find the cost of the network
+    def cost_gradient(self):
+        init_g = tf.global_variables_initializer()
+        init_l = tf.local_variables_initializer()
+
+        a = self.a_layers[0]
+        error = self.error_list[1]
+
+        for layer in range(len(self.a_layers) - 1):
+            a = self.a_layers[layer]
+            error = self.error_list[layer + 1]
+            error = tf.transpose(error)
+            cost = tf.matmul(a, error)
+            self.gradient_list.append(cost)
+
+    # Adjust network weights through gradient decent
+    def gradient_decent(self, learning_rate):
+        w_list = [None]
+        b_list = [None]
+        m = self.length
+        for layer in range(len(self.w) - 1):
+            error = self.error_list[layer + 1]
+            error = tf.reduce_sum(error, 1, keepdims=True)
+
+            gradient = tf.transpose(self.gradient_list[layer])
+
+            w = self.w[layer + 1]
+            b = self.b[layer + 1]
+
+            b = b - (learning_rate / m) * error
+            w = w - (learning_rate / m) * gradient
+
+            w_list.append(w)
+            b_list.append(b)
+
+        self.w = w_list[:]
+        self.b = b_list[:]
+        return
+
+    # Adjust weights using adam method (Reaches an optimal solution more efficiently compared to pure gradient decent)
+    def adam(self):
+
+        learning_rate = 0.001
+        beta_1 = 0.9
+        beta_2 = 0.999
+        epsilon = 10 ** (-8)
+
+        w_list = [None]
+        b_list = [None]
+        for layer in range(len(self.w) - 1):
+            error = self.error_list[layer + 1]
+            error = tf.reduce_sum(error, 1, keepdims=True)
+
+            gradient = tf.transpose(self.gradient_list[layer])
+
+            w = self.w[layer + 1]
+            b = self.b[layer + 1]
+
+            if not self.adam_first:
+                self.m_layer.append((1 - beta_1) * gradient)
+                self.v_layer.append((1 - beta_2) * (gradient ** 2))
+                self.m_layer_bias.append((1 - beta_1) * error)
+                self.v_layer_bias.append((1 - beta_2) * (error ** 2))
+
+            m = self.m_layer[layer]
+            v = self.v_layer[layer]
+            m_bias = self.m_layer_bias[layer]
+            v_bias = self.v_layer_bias[layer]
+
+            m_1 = beta_1 * m + (1 - beta_1) * gradient
+            v_1 = beta_2 * v + (1 - beta_2) * (gradient ** 2)
+            m_1_bias = beta_1 * m_bias + (1 - beta_1) * error
+            v_1_bias = beta_2 * v_bias + (1 - beta_2) * (error ** 2)
+
+            self.m_layer[layer] = m_1
+            self.v_layer[layer] = v_1
+            self.m_layer_bias[layer] = m_1_bias
+            self.v_layer_bias[layer] = v_1_bias
+
+            m_bias_corrected = (m_1) / (1 - beta_1)
+            v_bias_corrected = (v_1) / (1 - beta_2)
+            m_bias_corrected_bias = (m_1_bias) / (1 - beta_1)
+            v_bias_corrected_bias = (v_1_bias) / (1 - beta_2)
+
+            b = b - (learning_rate / (np.sqrt(v_bias_corrected_bias) + epsilon)) * m_bias_corrected_bias
+            w = w - (learning_rate / (np.sqrt(v_bias_corrected) + epsilon)) * m_bias_corrected
+
+            w_list.append(w)
+            b_list.append(b)
+
+        self.w = w_list[:]
+        self.b = b_list[:]
+        self.adam_first = True
+        return
+
+    # Train the network using labeled data
+    def train(self, input, output, learning_rate):
+        start_calc = time.time()
+        self.calculate(input)
+        end_calc = time.time()
+
+        start_out_error = time.time()
+        output_error = self.output_error_quadratic(output)
+        end_out_error = time.time()
+
+        start_back = time.time()
+        self.backpropogate_error(output_error)
+        end_back = time.time()
+
+        start_cost = time.time()
+        self.cost_gradient()
+        end_cost = time.time()
+
+        start_decent = time.time()
+        # self.gradient_decent(learning_rate)
+        self.adam()
+        end_decent = time.time()
+
+        start_cost_final = time.time()
+        cost = self.quadratic(self.neural_output, output)
+        end_cost_final = time.time()
+
+        # print('Calculate: %s\nOutput_error: %s\nBackpropogate: %s\nCost_gradient: %s\nGradient_Decent: %s\nCost: %s\nTotal: %s' % (
+        #     end_calc - start_calc, end_out_error - start_out_error, end_back - start_back, end_cost - start_cost,
+        #     end_decent - start_decent, end_cost_final-start_cost_final, end_cost_final-start_calc))
+        return cost
+
+    # Back propogate the error through the network
+    def backpropogate_error(self, output_error):
+        self.error_list.append(output_error)
+
+        for layer in range(len(self.layers_neurons) - 2):
+            w = tf.transpose(self.w[-(layer + 1)])
+            z = self.z_layers[-(layer + 2)]
+            error_next = self.error_list[1]
+            w_dot_error = tf.matmul(w, error_next)
+            error = np.multiply((w_dot_error), (self.dsigma_dz(z)))
+            self.error_list.insert(1, error)
+
+    # Calculate quadratic cost
+    def quadratic(self, neural_output, output_correct):
+        magnitude = output_correct - neural_output.T
+        cost_tmp = ((1 / 2) * (magnitude ** 2))
+        cost = np.average(cost_tmp)
+        return cost
+
+    # Calculate the output error of the network
+    def output_error_quadratic(self, output):
+        a = self.a_layers[-1]
+        z = self.a_layers[-1]
+
+        pC_pa = (a - output.T)  # pX_pY represents the partial derivative X with respect to Y
+        output_error = np.multiply(pC_pa, self.dsigma_dz(z))
+
+        return output_error
+
+    # Define the sigmoid activation function
+    def sigmoid(self, z):
+        return (1 / (1 + np.exp(-z)))
+
+    def dsigma_dz(self, z):  # dx_dy is the derivative of x with respect to y
+        z = np.clip(z, np.finfo(np.float64).min, np.finfo(np.float64).max)
+        return (np.exp(-z) / ((1 + np.exp(-z)) ** 2))
+
+    # Save the network
+    def save(self, filename):
+        names = ['_weights', '_bias', '_network']
+        parameters = {0: self.w, 1: self.b, 2: self.layers_neurons}
+        for index, name in enumerate(names):
+            tmp = []
+            for layer in parameters[index]:
+                if layer is not None:
+                    tmp.append(np.array(layer))
+                else:
+                    tmp.append(layer)
+            np.savez(filename + name, tmp)
+
+    # Load an existing network
+    def load(self, filename):
+        names = ['_weights', '_bias', '_network']
+        self.w = np.load(filename + names[0] + '.npz')['arr_0'].tolist()
+        self.b = np.load(filename + names[1] + '.npz')['arr_0'].tolist()
+        self.layers_neurons = np.load(filename + names[2] + '.npz')['arr_0'].tolist()
+
+    # Train the network a set number of epochs
+    def training_loop(self, inputs, labels, batch_size, epochs, learning_rate, save=False):
+        for epoch in range(epochs):
+            total_cost = 0
+            iterations = (int(ceil(len(inputs) / batch_size)))
+            for i in range(iterations):
+                try:
+                    cost = self.train(inputs[i * batch_size:(i * batch_size) + batch_size],
+                                      labels[i * batch_size:(i * batch_size) + batch_size], learning_rate=learning_rate)
+                except():
+                    cost = self.train(inputs[i * batch_size:],
+                                      labels[i * batch_size:], learning_rate=learning_rate)
+                total_cost = total_cost + cost
+            average_cost = total_cost / iterations
+            try:
+                change = last_cost - average_cost
+                print('Average Cost: %s\t\tChange: %s' % (average_cost, change))
+                if change < 0.0001: # Stop training if there is minimal improvement in the networks performance
+                    print('Converged:')
+                    break
+            except(UnboundLocalError):
+                print('Average Cost: %s' % average_cost)
+
+            last_cost = average_cost
+
+        if save:
+            print('Saving...')
+            self.save(save)
+
+
 # Inefficient as it mainly uses element wise operations
 class Neural_Network_Numpy():
     def __init__(self, input_size, output_size):
@@ -225,285 +504,6 @@ class Neural_Network_Numpy():
     def quadratic(self, a, y):
         magnitude = np.linalg.norm(y - a)
         return (1 / 2) * (magnitude ** 2)
-
-
-# Significantly improved efficiency by using Tensorflow as well as less element wise operations
-class Neural_Network_Tensor:
-    def __init__(self, inputs=None, outputs=None, load=None):
-        self.activation = self.sigmoid
-        if load:
-            self.load(load)
-        elif inputs and outputs:
-            self.inputs = inputs
-            self.outputs = outputs
-            self.layers_neurons = []
-            self.w = [None]
-            self.b = [None]
-            self.z_layers = []
-            self.a_layers = []
-            self.error_list = [None]
-            self.gradient_list = []
-
-            # Adam Variables
-            self.adam_first = False
-            self.m_layer = []
-            self.v_layer = []
-            self.m_layer_bias = []
-            self.v_layer_bias = []
-
-
-
-        else:
-            print('ERROR: Inputs or Outputs not specified')
-            exit(1)
-
-    # Reset variables from previous calculation
-    def clear_lists(self):
-        self.z_layers = []
-        self.a_layers = []
-        self.error_list = [None]
-        self.gradient_list = []
-
-    def add_layer(self, neurons):
-        self.layers_neurons.append(neurons)
-
-    # Create the network with the previously specified dimensions
-    def generate_network(self):
-        self.layers_neurons.append(self.outputs)
-        self.layers_neurons.insert(0, self.inputs)
-        for index in range(len(self.layers_neurons) - 1):
-            w = tf.truncated_normal([self.layers_neurons[index + 1], self.layers_neurons[index]], dtype=np.float64)
-            b = tf.ones([self.layers_neurons[index + 1], 1], dtype=np.float64)
-            self.w.append(w)
-            self.b.append(b)
-
-    # Calculate forward pass of the network
-    def calculate(self, input_array):
-        self.clear_lists()
-        self.length = len(input_array)
-        self.a_layers.append(input_array.T)  # Set the first layer to the input
-
-        for layer_index in range(len(self.layers_neurons) - 1):
-            z = tf.matmul(self.w[layer_index + 1], self.a_layers[layer_index]) + self.b[layer_index + 1]
-            activation = self.sigmoid(z)
-
-            self.a_layers.append(activation)
-            self.z_layers.append(z)
-
-        self.neural_output = activation
-
-    # Find the cost of the network
-    def cost_gradient(self):
-        init_g = tf.global_variables_initializer()
-        init_l = tf.local_variables_initializer()
-
-        a = self.a_layers[0]
-        error = self.error_list[1]
-
-        for layer in range(len(self.a_layers) - 1):
-            a = self.a_layers[layer]
-            error = self.error_list[layer + 1]
-            error = tf.transpose(error)
-            cost = tf.matmul(a, error)
-            self.gradient_list.append(cost)
-
-    # Adjust network weights through gradient decent
-    def gradient_decent(self, learning_rate):
-        w_list = [None]
-        b_list = [None]
-        m = self.length
-        for layer in range(len(self.w) - 1):
-            error = self.error_list[layer + 1]
-            error = tf.reduce_sum(error, 1, keepdims=True)
-
-            gradient = tf.transpose(self.gradient_list[layer])
-
-            w = self.w[layer + 1]
-            b = self.b[layer + 1]
-
-            b = b - (learning_rate / m) * error
-            w = w - (learning_rate / m) * gradient
-
-            w_list.append(w)
-            b_list.append(b)
-
-        self.w = w_list[:]
-        self.b = b_list[:]
-        return
-
-    # Adjust weights using adam method (Reaches an optimal solution for efficiently compared to pure gradient decent)
-    def adam(self):
-
-        learning_rate = 0.001
-        beta_1 = 0.9
-        beta_2 = 0.999
-        epsilon = 10 ** (-8)
-
-        w_list = [None]
-        b_list = [None]
-        for layer in range(len(self.w) - 1):
-            error = self.error_list[layer + 1]
-            error = tf.reduce_sum(error, 1, keepdims=True)
-
-            gradient = tf.transpose(self.gradient_list[layer])
-
-            w = self.w[layer + 1]
-            b = self.b[layer + 1]
-
-            if not self.adam_first:
-                self.m_layer.append((1 - beta_1) * gradient)
-                self.v_layer.append((1 - beta_2) * (gradient ** 2))
-                self.m_layer_bias.append((1 - beta_1) * error)
-                self.v_layer_bias.append((1 - beta_2) * (error ** 2))
-
-            m = self.m_layer[layer]
-            v = self.v_layer[layer]
-            m_bias = self.m_layer_bias[layer]
-            v_bias = self.v_layer_bias[layer]
-
-            m_1 = beta_1 * m + (1 - beta_1) * gradient
-            v_1 = beta_2 * v + (1 - beta_2) * (gradient ** 2)
-            m_1_bias = beta_1 * m_bias + (1 - beta_1) * error
-            v_1_bias = beta_2 * v_bias + (1 - beta_2) * (error ** 2)
-
-            self.m_layer[layer] = m_1
-            self.v_layer[layer] = v_1
-            self.m_layer_bias[layer] = m_1_bias
-            self.v_layer_bias[layer] = v_1_bias
-
-            m_bias_corrected = (m_1) / (1 - beta_1)
-            v_bias_corrected = (v_1) / (1 - beta_2)
-            m_bias_corrected_bias = (m_1_bias) / (1 - beta_1)
-            v_bias_corrected_bias = (v_1_bias) / (1 - beta_2)
-
-            b = b - (learning_rate / (np.sqrt(v_bias_corrected_bias) + epsilon)) * m_bias_corrected_bias
-            w = w - (learning_rate / (np.sqrt(v_bias_corrected) + epsilon)) * m_bias_corrected
-
-            w_list.append(w)
-            b_list.append(b)
-
-        self.w = w_list[:]
-        self.b = b_list[:]
-        self.adam_first = True
-        return
-
-    # Train the network using labeled data
-    def train(self, input, output, learning_rate):
-        start_calc = time.time()
-        self.calculate(input)
-        end_calc = time.time()
-
-        start_out_error = time.time()
-        output_error = self.output_error_quadratic(output)
-        end_out_error = time.time()
-
-        start_back = time.time()
-        self.backpropogate_error(output_error)
-        end_back = time.time()
-
-        start_cost = time.time()
-        self.cost_gradient()
-        end_cost = time.time()
-
-        start_decent = time.time()
-        # self.gradient_decent(learning_rate)
-        self.adam()
-        end_decent = time.time()
-
-        start_cost_final = time.time()
-        cost = self.quadratic(self.neural_output, output)
-        end_cost_final = time.time()
-
-        # print('Calculate: %s\nOutput_error: %s\nBackpropogate: %s\nCost_gradient: %s\nGradient_Decent: %s\nCost: %s\nTotal: %s' % (
-        #     end_calc - start_calc, end_out_error - start_out_error, end_back - start_back, end_cost - start_cost,
-        #     end_decent - start_decent, end_cost_final-start_cost_final, end_cost_final-start_calc))
-        return cost
-
-    # Back propogate the error through the network
-    def backpropogate_error(self, output_error):
-        self.error_list.append(output_error)
-
-        for layer in range(len(self.layers_neurons) - 2):
-            w = tf.transpose(self.w[-(layer + 1)])
-            z = self.z_layers[-(layer + 2)]
-            error_next = self.error_list[1]
-            w_dot_error = tf.matmul(w, error_next)
-            error = np.multiply((w_dot_error), (self.dsigma_dz(z)))
-            self.error_list.insert(1, error)
-
-    # Calculate quadratic cost
-    def quadratic(self, neural_output, output_correct):
-        magnitude = output_correct - neural_output.T
-        cost_tmp = ((1 / 2) * (magnitude ** 2))
-        cost = np.average(cost_tmp)
-        return cost
-
-    # Calculate the output error of the network
-    def output_error_quadratic(self, output):
-        a = self.a_layers[-1]
-        z = self.a_layers[-1]
-
-        pC_pa = (a - output.T)  # pX_pY represents the partial derivative X with respect to Y
-        output_error = np.multiply(pC_pa, self.dsigma_dz(z))
-
-        return output_error
-
-    # Define the sigmoid activation function
-    def sigmoid(self, z):
-        return (1 / (1 + np.exp(-z)))
-
-    def dsigma_dz(self, z):  # dx_dy is the derivative of x with respect to y
-        z = np.clip(z, np.finfo(np.float64).min, np.finfo(np.float64).max)
-        return (np.exp(-z) / ((1 + np.exp(-z)) ** 2))
-
-    # Save the network
-    def save(self, filename):
-        names = ['_weights', '_bias', '_network']
-        parameters = {0: self.w, 1: self.b, 2: self.layers_neurons}
-        for index, name in enumerate(names):
-            tmp = []
-            for layer in parameters[index]:
-                if layer is not None:
-                    tmp.append(np.array(layer))
-                else:
-                    tmp.append(layer)
-            np.savez(filename + name, tmp)
-
-    # Load an existing network
-    def load(self, filename):
-        names = ['_weights', '_bias', '_network']
-        self.w = np.load(filename + names[0] + '.npz')['arr_0'].tolist()
-        self.b = np.load(filename + names[1] + '.npz')['arr_0'].tolist()
-        self.layers_neurons = np.load(filename + names[2] + '.npz')['arr_0'].tolist()
-
-    # Train the network a set number of epochs
-    def training_loop(self, inputs, labels, batch_size, epochs, learning_rate, save=False):
-        for epoch in range(epochs):
-            total_cost = 0
-            iterations = (int(ceil(len(inputs) / batch_size)))
-            for i in range(iterations):
-                try:
-                    cost = self.train(inputs[i * batch_size:(i * batch_size) + batch_size],
-                                      labels[i * batch_size:(i * batch_size) + batch_size], learning_rate=learning_rate)
-                except():
-                    cost = self.train(inputs[i * batch_size:],
-                                      labels[i * batch_size:], learning_rate=learning_rate)
-                total_cost = total_cost + cost
-            average_cost = total_cost / iterations
-            try:
-                change = last_cost - average_cost
-                print('Average Cost: %s\t\tChange: %s' % (average_cost, change))
-                if change < 0.0001: # Stop training if there is minimal improvement in the networks performance
-                    print('Converged:')
-                    break
-            except(UnboundLocalError):
-                print('Average Cost: %s' % average_cost)
-
-            last_cost = average_cost
-
-        if save:
-            print('Saving...')
-            self.save(save)
 
 
 # Normalise the data (Only if lower bound is 0)
